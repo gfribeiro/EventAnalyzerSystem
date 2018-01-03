@@ -1,5 +1,5 @@
-#spark_event_enhance_job
 import os
+import nltk
 from pyspark import SparkContext
 from pyspark.sql import SQLContext
 
@@ -15,3 +15,12 @@ events.registerTempTable("events")
 
 result = sql.sql("select count(0) from events")
 result.show()
+
+rows = sql.sql("select event_desc,regexp_extract(event_desc,'[no|em] ([A-Z][a-z]+)',1) as words from events where event_desc rlike '.* (no|em) [A-Z][a-z]+ .*'").take(1)
+stok = nltk.data.load('tokenizers/punkt/portuguese.pickle')
+for row in rows:
+    print(row.event_desc)
+    for word in nltk.tokenize.word_tokenize(row.event_desc):
+        print('w: ' + sent)
+    #print(nltk.pos_tag(row.event_desc))
+    #print(row.event_desc + '>> words: ' + row.words)
