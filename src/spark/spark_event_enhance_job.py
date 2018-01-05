@@ -24,3 +24,31 @@ for row in rows:
         print('w: ' + sent)
     #print(nltk.pos_tag(row.event_desc))
     #print(row.event_desc + '>> words: ' + row.words)
+
+def extract_entity_names(t):
+    entity_names = []
+
+    if hasattr(t, 'label') and t.label:
+        #print(t)
+        if t.label() == 'NE':
+            entity_names.append(' '.join([child[0] for child in t]))
+        else:
+            for child in t:
+                entity_names.extend(extract_entity_names(child))
+
+    return entity_names
+
+rows = sql.sql("select event_desc,regexp_extract(event_desc,'[no|em] ([A-Z][a-z]+ .*)') as words from events where event_desc rlike '.* (no|em) [A-Z][a-z]+ .*'").take(20)
+for row in rows:
+    sentences = nltk.sent_tokenize(row.words)
+    tokenized_sentences = [nltk.word_tokenize(sentence) for sentence in sentences]
+    tagged_sentences = [nltk.pos_tag(sentence) for sentence in tokenized_sentences]
+    #print(tagged_sentences)
+    chunked_sentences = nltk.ne_chunk_sents(tagged_sentences, binary=True)
+    print(row.event_desc)
+    print('>> W: ' + row.words)
+    entities = []
+    for tree in chunked_sentences:
+        entities.extend(extract_entity_names(tree))
+
+    print(entities)
