@@ -1,8 +1,6 @@
 # database.py
 from cassandra.cluster import Cluster
-
-CASSANDRA_HOST = '172.17.0.3'
-CASSANDRA_KEYSPACE = 'sea'
+import json
 
 class CassandraConnection():
     
@@ -19,7 +17,8 @@ class CassandraConnection():
 class DataManager():
 
     def __init__(self):
-        self.db_session = CassandraConnection(CASSANDRA_HOST,CASSANDRA_KEYSPACE).getSession()
+        self.db_config = json.load(open('dbconfig.json'))
+        self.db_session = CassandraConnection(self.db_config["cassandra"]["host"],self.db_config["cassandra"]["keyspace"]).getSession()
     
     def getAppConfig(self):
         rows = self.db_session.execute('SELECT * FROM app_config')
@@ -28,8 +27,11 @@ class DataManager():
             config[row.config_key] = row.config_value
         return config
 
+    def getEventCategories(self):
+        return self.db_session.execute('SELECT * FROM event_category')
+
     def getMonitoringKeywords(self):
-        rows = self.db_session.execute('SELECT * FROM event_category')
+        rows = self.getEventCategories()
         keywords = ''
         for row in rows:
             keywords += row.keywords + ','
