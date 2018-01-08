@@ -1,0 +1,6 @@
+{
+    "cassandra" : {
+        "host" : "localhost",
+        "keyspace" : "sea"
+    }
+}
