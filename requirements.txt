@@ -1,3 +1,4 @@
 tweepy
 cassandra-driver
 nltk
+numpy
