@@ -1,9 +1,16 @@
 # event_processor.py
 import json
+import nltk
+import re
+import time
+import requests
 from database import DataManager
+from pprint import pprint
+
 class TwitterProcessor():
     
     def createEvent(self,tweet):
+        """Creates an event from a Twitter post"""
         event = {}
         event['timestamp_ms'] = tweet['timestamp_ms']
         if 'retweeted_status' in tweet.keys():
@@ -19,10 +26,147 @@ class TwitterProcessor():
         event['favorite_count'] = tweet['favorite_count']
         return event
 
+class EventEnhancer():
+
+    def __init__(self):
+        self.LOG_FILE = 'enhance.log'
+
+    def categorizeEvent(self,event):
+        """Detects the event category based on a dictionary of keywords"""
+        categories = DataManager().getEventCategories()
+        tokens = nltk.tokenize.word_tokenize(event['event_desc'])
+        for category in categories:
+            keywords = category.keywords.split(',')
+            for keyword in keywords:
+                if keyword in tokens:
+                    event['category_name'] = category.category_name
+                    break
+        return event
+
+    def processGeolocation(self,event):
+        """Processes the geolocations of an event:
+           1. Applies a regex matching location prepositions to refine event descriptions with possible location information
+           2. If matches regex, extract entities from result
+           3. Calls the Google Geocoding API
+           4. Parses the result and defines locations attributes for the event
+        """
+        START_TIME = time.monotonic()
+        appConfig = DataManager().getAppConfig()
+        nlp = NlpToolkit()
+        google = GoogleApiToolkit()
+        prepositions = self.getLocationPrepositions(event['lang'])
+
+        match = re.search('.*' + prepositions + '\s([A-Z][a-z]+.*)',event['event_desc'])
+        if match:
+            result = match.group(1)
+            entities = nlp.extractEntities(result)
+            if len(entities) > 0:
+                geocode_result = google.processGeocoding(' '.join(entities), appConfig["GOOGLE_GEOCODE_API_KEY"])
+                if geocode_result['status'] == 'OK':
+                    event = self.parseGoogleGeocodeData(event,geocode_result)
+                elif geocode_result['status'] == 'ZERO_RESULTS':
+                    event['location_level'] = -1
+                else:
+                    print("ERROR: Geocoding Api: %s >> source_id: %s" % (geocode_result['status'],event['source_id']), file=open(self.LOG_FILE,"a"))
+            else:
+                event['location_level'] = -1
+        else:
+            event['location_level'] = -1
+
+        ELAPSED_TIME = time.monotonic() - START_TIME
+        print('SUCCESS: ELAPSED_TIME: %.3f >> SOURCE_ID: %s' % (ELAPSED_TIME,event['source_id']), file=open(self.LOG_FILE,"a"))
+        return event
+
+    def getLocationPrepositions(self,lang):
+        """ Receives a language code and returns the prepositions of that language."""
+        prepositions = {
+            'pt':'[no|em|na]'
+        }
+        return prepositions.get(lang,'')
+
+    def parseGoogleGeocodeData(self,event,geocodeData):
+        event['location_level'] = -1
+        event['latitude'] = geocodeData["results"][0]["geometry"]["location"]["lat"]
+        event['longitude'] = geocodeData["results"][0]["geometry"]["location"]["lng"]
+        for component in geocodeData["results"][0]["address_components"]:
+            if 'route' in component["types"]:
+                event['street'] = component["long_name"]
+                event = self.setEventLocationLevel(event,4)
+            
+            if 'sublocality' in component["types"]:
+                event['neighborhood'] = component["long_name"]
+                event = self.setEventLocationLevel(event,3)
+            
+            if 'locality' in component["types"]:
+                event['city'] = component["long_name"]
+                event = self.setEventLocationLevel(event,2)
+            
+            if 'administrative_area_level_1' in component["types"]:
+                event['state'] = component["long_name"]
+                event = self.setEventLocationLevel(event,1)
+            
+            if 'country' in component["types"]:
+                event['country'] = component["long_name"]
+                event = self.setEventLocationLevel(event,0)
+
+        return event
+
+    def setEventLocationLevel(self,event,location_level):
+        if event['location_level'] < location_level:
+            event['location_level'] = location_level
+        return event
+        
+class GoogleApiToolkit():
+
+    def processGeocoding(self,searchText,appKey):
+        response = requests.get("https://maps.googleapis.com/maps/api/geocode/json?address="+searchText+"&key="+appKey)
+        if response.ok:
+            return json.loads(response.content)
+        else:
+            response.raise_for_status()
+            return None
+
+class NlpToolkit():
+
+    def processEntityTree(self,t):
+        entity_names = []
+
+        if hasattr(t, 'label') and t.label:
+            if t.label() == 'NE':
+                entity_names.append(' '.join([child[0] for child in t]))
+            else:
+                for child in t:
+                    entity_names.extend(self.processEntityTree(child))
+
+        return entity_names
+
+    def extractEntities(self,text):
+        sentences = nltk.sent_tokenize(text)
+        tokenized_sentences = [nltk.word_tokenize(sentence) for sentence in sentences]
+        tagged_sentences = [nltk.pos_tag(sentence) for sentence in tokenized_sentences]
+        chunked_sentences = nltk.ne_chunk_sents(tagged_sentences, binary=True)
+        entities = []
+        for tree in chunked_sentences:
+            entities.extend(self.processEntityTree(tree))
+        return entities
+
+def testGoogleGeocoding():
+    google = GoogleApiToolkit()
+    geocode_result = google.processGeocoding("rua doutor luiz palmier","AIzaSyARSfX6sppFwIp7QWJATLYqpTVOdxqnJ6s")
+    print(geocode_result)
+
+def testEventProcessing():
+    event = {}
+    event['source_id'] = 123
+    event['event_desc'] = 'tiros na Niteroixx'
+    event['lang'] = 'pt'
+
+    eventEnhancer = EventEnhancer()
+    event = eventEnhancer.categorizeEvent(event)
+    event = eventEnhancer.processGeolocation(event)
+    pprint(event)
+
 if __name__ == "__main__":
-    processor = TwitterProcessor()
-    tweet = json.loads(r'''{"created_at":"Fri Dec 01 01:40:30 +0000 2017","id":936409642007252991,"id_str":"936409642007252992","text":"RT @DouglasQuerubim: Flamengo come\u00e7a a jogar quando ?????? Vamos querer em crlh!!","source":"\u003ca href=\"http:\/\/twitter.com\/download\/android\" rel=\"nofollow\"\u003eTwitter for Android\u003c\/a\u003e","truncated":false,"in_reply_to_status_id":null,"in_reply_to_status_id_str":null,"in_reply_to_user_id":null,"in_reply_to_user_id_str":null,"in_reply_to_screen_name":null,"user":{"id":848028590012866560,"id_str":"848028590012866560","name":"Romenia","screen_name":"MeniaMathias","location":"Queimados, Brasil","url":null,"description":"PDA \u2764 \nEu n\u00e3o estou b\u00eabada, s\u00f3 perdi o controle!!","translator_type":"none","protected":false,"verified":false,"followers_count":723,"friends_count":414,"listed_count":1,"favourites_count":8417,"statuses_count":16448,"created_at":"Sat Apr 01 04:25:46 +0000 2017","utc_offset":null,"time_zone":null,"geo_enabled":true,"lang":"pt","contributors_enabled":false,"is_translator":false,"profile_background_color":"F5F8FA","profile_background_image_url":"","profile_background_image_url_https":"","profile_background_tile":false,"profile_link_color":"1DA1F2","profile_sidebar_border_color":"C0DEED","profile_sidebar_fill_color":"DDEEF6","profile_text_color":"333333","profile_use_background_image":true,"profile_image_url":"http:\/\/pbs.twimg.com\/profile_images\/936195546288738306\/9bClg56a_normal.jpg","profile_image_url_https":"https:\/\/pbs.twimg.com\/profile_images\/936195546288738306\/9bClg56a_normal.jpg","profile_banner_url":"https:\/\/pbs.twimg.com\/profile_banners\/848028590012866560\/1512035695","default_profile":true,"default_profile_image":false,"following":null,"follow_request_sent":null,"notifications":null},"geo":null,"coordinates":null,"place":null,"contributors":null,"retweeted_status":{"created_at":"Fri Dec 01 01:27:37 +0000 2017","id":936406398061219841,"id_str":"936406398061219840","text":"Flamengo come\u00e7a a jogar quando ?????? Vamos querer em crlh!!","source":"\u003ca href=\"http:\/\/twitter.com\/download\/android\" rel=\"nofollow\"\u003eTwitter for Android\u003c\/a\u003e","truncated":false,"in_reply_to_status_id":null,"in_reply_to_status_id_str":null,"in_reply_to_user_id":null,"in_reply_to_user_id_str":null,"in_reply_to_screen_name":null,"user":{"id":836653481842835456,"id_str":"836653481842835456","name":"Querubim","screen_name":"DouglasQuerubim","location":"Magalh\u00e3es Bastos","url":"https:\/\/curiouscat.me\/Querubiim","description":"Concurseiro Militar","translator_type":"none","protected":false,"verified":false,"followers_count":798,"friends_count":702,"listed_count":2,"favourites_count":5831,"statuses_count":1610,"created_at":"Tue Feb 28 19:05:09 +0000 2017","utc_offset":null,"time_zone":null,"geo_enabled":true,"lang":"pt","contributors_enabled":false,"is_translator":false,"profile_background_color":"F5F8FA","profile_background_image_url":"","profile_background_image_url_https":"","profile_background_tile":false,"profile_link_color":"1DA1F2","profile_sidebar_border_color":"C0DEED","profile_sidebar_fill_color":"DDEEF6","profile_text_color":"333333","profile_use_background_image":true,"profile_image_url":"http:\/\/pbs.twimg.com\/profile_images\/924453575434096640\/RG48YY6e_normal.jpg","profile_image_url_https":"https:\/\/pbs.twimg.com\/profile_images\/924453575434096640\/RG48YY6e_normal.jpg","profile_banner_url":"https:\/\/pbs.twimg.com\/profile_banners\/836653481842835456\/1505449118","default_profile":true,"default_profile_image":false,"following":null,"follow_request_sent":null,"notifications":null},"geo":null,"coordinates":null,"place":null,"contributors":null,"is_quote_status":false,"quote_count":0,"reply_count":0,"retweet_count":5,"favorite_count":1,"entities":{"hashtags":[],"urls":[],"user_mentions":[],"symbols":[]},"favorited":false,"retweeted":false,"filter_level":"low","lang":"pt"},"is_quote_status":false,"quote_count":0,"reply_count":0,"retweet_count":0,"favorite_count":0,"entities":{"hashtags":[],"urls":[],"user_mentions":[{"screen_name":"DouglasQuerubim","name":"Querubim","id":836653481842835456,"id_str":"836653481842835456","indices":[3,19]}],"symbols":[]},"favorited":false,"retweeted":false,"filter_level":"low","lang":"pt","timestamp_ms":"1512092430961"}''')
-    event = processor.createEvent(tweet)
-    dataManager = DataManager()
-    dataManager.insertJson('events',json.dumps(event))    
-    print(str(event))
+    #testGoogleGeocoding()
+    testEventProcessing()
+    #nltk.download('all')
