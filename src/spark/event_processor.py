@@ -3,7 +3,9 @@ import json
 import nltk
 import re
 import time
+import datetime
 import requests
+import copy
 from database import DataManager
 from pprint import pprint
 
@@ -45,10 +47,10 @@ class EventEnhancer():
 
     def processGeolocation(self,event):
         """Processes the geolocations of an event:
-           1. Applies a regex matching location prepositions to refine event descriptions with possible location information
-           2. If matches regex, extract entities from result
-           3. Calls the Google Geocoding API
-           4. Parses the result and defines locations attributes for the event
+        1. Applies a regex matching location prepositions to refine event descriptions with possible location information
+        2. If matches regex, extract entities from result
+        3. Calls the Google Geocoding API
+        4. Parses the result and defines locations attributes for the event
         """
         START_TIME = time.monotonic()
         appConfig = DataManager().getAppConfig()
@@ -74,7 +76,7 @@ class EventEnhancer():
             event['location_level'] = -1
 
         ELAPSED_TIME = time.monotonic() - START_TIME
-        print('SUCCESS: ELAPSED_TIME: %.3f >> SOURCE_ID: %s' % (ELAPSED_TIME,event['source_id']), file=open(self.LOG_FILE,"a"))
+        print('%s - SUCCESS: ELAPSED_TIME: %.3f >> SOURCE_ID: %s' % (datetime.datetime.now(),ELAPSED_TIME,event['source_id']), file=open(self.LOG_FILE,"a"))
         return event
 
     def getLocationPrepositions(self,lang):
@@ -168,5 +170,5 @@ def testEventProcessing():
 
 if __name__ == "__main__":
     #testGoogleGeocoding()
-    testEventProcessing()
+    #testEventProcessing()
     #nltk.download('all')
