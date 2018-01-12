@@ -16,7 +16,7 @@ LOG_FILE = 'enhance_job.log'
 
 os.environ['PYSPARK_SUBMIT_ARGS'] = '--packages datastax:spark-cassandra-connector:2.0.6-s_2.11 --conf spark.cassandra.connection.host='+CASSANDRA_HOST+' pyspark-shell'
 
-sc = SparkContext("local[2]", "Event Enhance Job")
+sc = SparkContext("local[*]", "Event Enhance Job")
 sql = SQLContext(sc)
 
 def get_event_schema():
@@ -49,7 +49,7 @@ def process_event(event):
     return Row(**event)
 
 while True:    
-    events = sql.read.format("org.apache.spark.sql.cassandra").load(keyspace=CASSANDRA_KEYSPACE, table="events").select("*").where("location_level is null").limit(100)
+    events = sql.read.format("org.apache.spark.sql.cassandra").load(keyspace=CASSANDRA_KEYSPACE, table="events").select("*").where("location_level is null")
     rdd = events.rdd.map(process_event)
     schema = get_event_schema()
     df = sql.createDataFrame(rdd,schema)
