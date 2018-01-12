@@ -168,7 +168,7 @@ def testEventProcessing():
     event = eventEnhancer.processGeolocation(event)
     pprint(event)
 
-if __name__ == "__main__":
+#if __name__ == "__main__":
     #testGoogleGeocoding()
     #testEventProcessing()
     #nltk.download('all')
