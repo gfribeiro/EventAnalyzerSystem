@@ -48,10 +48,9 @@ def process_event(event):
     event = eventEnhancer.processGeolocation(event)
     return Row(**event)
 
-while True:    
-    events = sql.read.format("org.apache.spark.sql.cassandra").load(keyspace=CASSANDRA_KEYSPACE, table="events").select("*").where("location_level is null")
-    rdd = events.rdd.map(process_event)
-    schema = get_event_schema()
-    df = sql.createDataFrame(rdd,schema)
-    df.write.format("org.apache.spark.sql.cassandra").mode('append').options(table="events", keyspace=CASSANDRA_KEYSPACE).save()
-    print('%s - PROCESSED: %d ROWS' % (datetime.datetime.now(),df.count()),file=open(LOG_FILE,"a"))
+events = sql.read.format("org.apache.spark.sql.cassandra").load(keyspace=CASSANDRA_KEYSPACE, table="events").select("*").where("location_level is null").limit(100)
+rdd = events.rdd.map(process_event)
+schema = get_event_schema()
+df = sql.createDataFrame(rdd,schema)
+df.write.format("org.apache.spark.sql.cassandra").mode('append').options(table="events", keyspace=CASSANDRA_KEYSPACE).save()
+print('%s - PROCESSED: %d ROWS' % (datetime.datetime.now(),df.count()),file=open(LOG_FILE,"a"))
