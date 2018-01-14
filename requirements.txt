@@ -2,3 +2,4 @@ tweepy
 cassandra-driver
 nltk
 numpy
+kafka-python
