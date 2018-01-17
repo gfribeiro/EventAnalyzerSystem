@@ -2,4 +2,8 @@ tweepy
 cassandra-driver
 nltk
 numpy
-kafka-python
+dash
+dash-renderer
+dash-html-components
+dash-core-components
+plotly --upgrade
