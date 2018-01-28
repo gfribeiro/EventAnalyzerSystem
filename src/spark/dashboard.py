@@ -23,11 +23,18 @@ app = dash.Dash()
 
 # REGISTER EVENTS TABLE
 
-events = sql.read.format("org.apache.spark.sql.cassandra").load(keyspace="sea", table="events")
+events = sql.read.format("org.apache.spark.sql.cassandra").load(keyspace="sea", table="events").cache()
 events.registerTempTable("events")
 
 # RESULTSETS
 category_names = sql.sql("select category_name from events where category_name is not null group by category_name").toPandas()
+EVENT_COLORS = dict(
+    Roubo       = 'rgb(244, 237, 17)',
+    Tiroteio    = 'rgb(244, 65, 65)',
+    Assalto     = 'rgb(122, 69, 165)',
+    Manifestação= 'rgb(31, 198, 48)',
+    Arrastão    = 'rgb(16, 229, 215)'
+)
 
 # DASHBOARD LAYOUT
 
@@ -152,17 +159,19 @@ def update_top10_cities(category):
 def update_event_map(n_clicks,event_date,event_hour):
     start_date = str(event_date) + ' ' + str(event_hour[0])
     end_date =  str(event_date) + ' ' + str(event_hour[1])
-    event_map = sql.sql("select category_name, latitude, longitude from events where country = 'Brazil' and from_unixtime(timestamp_ms/1000,'yyyy-MM-dd H') >= '"+start_date+"' and from_unixtime(timestamp_ms/1000,'yyyy-MM-dd H') <= '"+end_date+"' and latitude is not null and longitude is not null and category_name is not null").toPandas()
+    event_map = sql.sql("select category_name, event_desc, from_unixtime(timestamp_ms/1000,'H') hour_of_day, latitude, longitude from events where country = 'Brazil' and from_unixtime(timestamp_ms/1000,'yyyy-MM-dd H') >= '"+start_date+"' and from_unixtime(timestamp_ms/1000,'yyyy-MM-dd H') <= '"+end_date+"' and latitude is not null and longitude is not null and category_name is not null").toPandas()
     data = go.Data([
         go.Scattermapbox(
-            lat=event_map['latitude'],
-            lon=event_map['longitude'],
+            lat=value['latitude'],
+            lon=value['longitude'],
             mode='markers',
             marker=go.Marker(
-                size=9
+                size=9,
+                color=EVENT_COLORS[key]
             ),
-            text=event_map['category_name'],
-        )
+            name=key,
+            text= key + "(" + value['hour_of_day'] + "h) Texto: " + value['event_desc'],
+        ) for key,value in event_map.groupby('category_name')
     ])
     
     layout = go.Layout(
