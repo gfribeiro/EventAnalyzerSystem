@@ -1,8 +1,10 @@
 import dash
 import dash_core_components as dcc
 import dash_html_components as html
+import dash_table_experiments as dt
 import plotly.graph_objs as go
 import os
+from datetime import datetime
 from pyspark import SparkContext,SparkConf
 from pyspark.sql import SQLContext
 
@@ -12,7 +14,7 @@ os.environ['PYSPARK_SUBMIT_ARGS'] = '--packages datastax:spark-cassandra-connect
 
 conf = SparkConf()
 conf.setMaster("local[*]")
-conf.setAppName("Cassandra crud test")
+conf.setAppName("Dashboard")
 
 sc = SparkContext(conf=conf)
 sql = SQLContext(sc)
@@ -30,20 +32,60 @@ category_names = sql.sql("select category_name from events where category_name i
 # DASHBOARD LAYOUT
 
 app.layout = html.Div([
-    html.H1(children='Eventos de Segurança Pública'),
-    html.Button('Atualizar', id='update-btn'),
-    # EVENTS BY STATE
-    html.Div(id='events-state',children=[
-        html.Div(children='Tipo de evento:'),
-        dcc.Dropdown(id='events-state-category',
-                    options=[{'label': i, 'value': i} for i in category_names['category_name']],
-                    value=category_names['category_name'][0]),
-        dcc.Graph(id='events-state-graph')
+    html.Div(id='dash-header',children=[
+        html.H1(children='Eventos de Segurança Pública'),
+        html.Button('Atualizar', id='update-btn')
     ]),
     
-    #EVENTS MONTH
-    html.Div(id='events-month',children=[
-        dcc.Graph(id='events-month-graph')
+    # EVENT MAP
+    # KEY pk.eyJ1IjoiZ2Zlcm5hbmRlc3B5IiwiYSI6ImNqY3hzNzc1cDB4ZWwyeG5zeXBuZjg3Z2YifQ.Wy4-pad8gD2K6GCtnJGJpQ
+    html.Div(className='row',children=[
+        html.Div(id='events-map',className='eight columns',children=[
+            html.H3('Mapa de Eventos'),
+            dcc.DatePickerSingle(
+                id='map-date-picker',
+                display_format="YYYY-MM-DD",
+                date=datetime(2017, 12, 29)
+            ),
+            dcc.Graph(id='events-map-graph'),
+            dcc.RangeSlider(
+                id='map-range-slider',
+                marks={i: '{}h'.format(i) for i in range(0, 23)},
+                min=0,
+                max=23,
+                value=[0, 1]
+            )
+        ]),  
+        # TOP 10 CITIES
+        html.Div(id='top-10-cities',className='four columns',children=[
+            html.H3('Top 10 Cidades'),
+            html.Div(children='Tipo de evento:'),
+            dcc.Dropdown(id='top-10-category',
+                        options=[{'label': i, 'value': i} for i in category_names['category_name']],
+                        value=category_names['category_name'][0]),
+            dt.DataTable(
+                rows=[{}], # initialise the rows
+                selected_row_indices=[],
+                id='top-10-cities-table'
+            )
+        ]),
+    ]),
+    html.Div(className='row',children=[
+        # EVENTS LAST MONTH
+        html.Div(id='events-month',className='six columns',children=[
+            html.H3('Nos Últimos 30 Dias'),
+            dcc.Graph(id='events-month-graph')
+        ]),
+
+        # EVENTS BY STATE
+        html.Div(id='events-state',className='six columns',children=[
+            html.H3('Eventos por Estado'),
+            html.Div(children='Tipo de evento:'),
+            dcc.Dropdown(id='events-state-category',
+                        options=[{'label': i, 'value': i} for i in category_names['category_name']],
+                        value=category_names['category_name'][0]),
+            dcc.Graph(id='events-state-graph')
+        ])
     ])
     
 ])
@@ -61,9 +103,9 @@ def update_events_state(events_state_category, n_clicks):
         'data': [
             {'x': events_state['rep_state'], 'y': events_state['total'], 'type': 'bar', 'name': 'Sender'},
         ],
-        'layout': {
-            'title': 'Eventos por Estado'
-        }
+        'layout': [
+            autosize=True
+        ]
     }
 
 # EVENTS LAST MONTH CALLBACK
@@ -82,7 +124,7 @@ def update_events_time(n_clicks):
     return go.Figure(
         data=event_data,
         layout=go.Layout(
-            title='Últimos 30 Dias',
+            autosize=True,
             showlegend=True,
             legend=go.Legend(
                 x=0,
@@ -91,6 +133,53 @@ def update_events_time(n_clicks):
             margin=go.Margin(l=40, r=0, t=40, b=30)
         )
     )
+
+# TOP 10 CITIES
+@app.callback(dash.dependencies.Output('top-10-cities-table', 'rows'), 
+              [dash.dependencies.Input('top-10-category', 'value')])
+def update_top10_cities(category):
+    top_10_cities = sql.sql("select * from (select count(0) total, city as cidade, regexp_replace(state,'State of ','') estado from events where country = 'Brazil' and city is not null and category_name = '"+category+"' group by cidade, estado) order by total desc limit 10").toPandas()
+    return top_10_cities.to_dict('records')
+
+# EVENT MAP
+@app.callback(
+    dash.dependencies.Output('events-map-graph', 'figure'),
+    [dash.dependencies.Input('update-btn', 'n_clicks'),
+    dash.dependencies.Input('map-date-picker', 'date'),
+    dash.dependencies.Input('map-range-slider', 'value')])
+def update_event_map(n_clicks,event_date,event_hour):
+    start_date = str(event_date) + ' ' + str(event_hour[0])
+    end_date =  str(event_date) + ' ' + str(event_hour[1])
+    event_map = sql.sql("select category_name, latitude, longitude from events where country = 'Brazil' and from_unixtime(timestamp_ms/1000,'yyyy-MM-dd H') >= '"+start_date+"' and from_unixtime(timestamp_ms/1000,'yyyy-MM-dd H') <= '"+end_date+"' and latitude is not null and longitude is not null and category_name is not null").toPandas()
+    data = go.Data([
+        go.Scattermapbox(
+            lat=event_map['latitude'],
+            lon=event_map['longitude'],
+            mode='markers',
+            marker=go.Marker(
+                size=9
+            ),
+            text=event_map['category_name'],
+        )
+    ])
+    
+    layout = go.Layout(
+        autosize=True,
+        hovermode='closest',
+        margin=go.Margin(l=0, r=0, t=0, b=0),
+        mapbox=dict(
+            accesstoken='pk.eyJ1IjoiZ2Zlcm5hbmRlc3B5IiwiYSI6ImNqY3hzNzc1cDB4ZWwyeG5zeXBuZjg3Z2YifQ.Wy4-pad8gD2K6GCtnJGJpQ',
+            bearing=0,
+            center=dict(
+                lat=-14.235004,
+                lon=-51.92528
+            ),
+            pitch=0,
+            zoom=4
+        ),
+    )
+    
+    return go.Figure(data=data,layout=layout)
 
 app.css.append_css({
     "external_url": "http://tcc-ds-igti.eastus.cloudapp.azure.com:8080/dashboard.css"
