@@ -103,9 +103,10 @@ def update_events_state(events_state_category, n_clicks):
         'data': [
             {'x': events_state['rep_state'], 'y': events_state['total'], 'type': 'bar', 'name': 'Sender'},
         ],
-        'layout': [
-            autosize=True
-        ]
+        'layout': {
+            'autosize': True,
+            'height': 500
+        }
     }
 
 # EVENTS LAST MONTH CALLBACK
@@ -125,6 +126,7 @@ def update_events_time(n_clicks):
         data=event_data,
         layout=go.Layout(
             autosize=True,
+            height=500,
             showlegend=True,
             legend=go.Legend(
                 x=0,
@@ -165,6 +167,7 @@ def update_event_map(n_clicks,event_date,event_hour):
     
     layout = go.Layout(
         autosize=True,
+        height=500,
         hovermode='closest',
         margin=go.Margin(l=0, r=0, t=0, b=0),
         mapbox=dict(
@@ -175,7 +178,7 @@ def update_event_map(n_clicks,event_date,event_hour):
                 lon=-51.92528
             ),
             pitch=0,
-            zoom=4
+            zoom=2
         ),
     )
     
